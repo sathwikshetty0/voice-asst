@@ -10,12 +10,51 @@ A browser-based voice assistant that lets you have natural spoken conversations 
 
 All processing happens client-side except for the LLM call, which is proxied through a lightweight Python server to avoid CORS issues.
 
+## Features
+
+- 🎙️ **Voice Input** — Click-to-talk with real-time transcription feedback
+- ⚡ **Streaming Responses** — Tokens appear live as the model generates them
+- 🔊 **Voice Output** — AI reads responses aloud with sentence-level chunking (no silent failures)
+- 💬 **Conversation Memory** — Keeps context of the last 20 messages
+- 🎨 **Dark UI** — Clean, modern dark interface with smooth animations
+- ⚙️ **Settings Panel** — Save your API key in localStorage (no server storage)
+- 🚀 **Zero Dependencies** — No npm, no build step, no frameworks — just Python + a browser
+
+## AI Model
+
+| Property | Details |
+|----------|---------|
+| **Model** | Meta Llama 3.3 70B Instruct |
+| **Provider** | NVIDIA AI (NIM) |
+| **Endpoint** | `https://integrate.api.nvidia.com/v1/chat/completions` |
+| **Parameters** | temperature: 0.8, top_p: 0.9, max_tokens: 512 |
+| **Streaming** | Yes — Server-Sent Events (SSE) for real-time token delivery |
+| **Context** | Maintains last 20 messages for conversational memory |
+
+### Why Llama 3.3 70B?
+
+- High-quality conversational responses with natural tone
+- Fast inference via NVIDIA's hosted NIM infrastructure
+- Supports streaming for low-latency feel (tokens arrive as they're generated)
+- Free tier available on NVIDIA's platform for development
+
+### System Prompt
+
+The model is configured as a warm, emotionally intelligent voice companion:
+- Speaks naturally like a real human (not robotic)
+- Keeps responses to 2-4 sentences (ideal for voice)
+- Matches the user's emotional tone
+- Avoids bullet points unless explicitly asked
+- Prioritizes natural spoken language
+
 ## Tech Stack
 
 - **Frontend**: Vanilla HTML/CSS/JavaScript (no build step, no frameworks)
 - **Backend**: Python 3 standard library only (`http.server`, `urllib.request`)
-- **LLM**: NVIDIA AI (meta/llama-3.3-70b-instruct) via streaming SSE
-- **Voice I/O**: Web Speech API (SpeechRecognition + SpeechSynthesis)
+- **LLM**: Meta Llama 3.3 70B Instruct via NVIDIA NIM API (streaming SSE)
+- **Speech-to-Text**: Web Speech API (`SpeechRecognition` / `webkitSpeechRecognition`)
+- **Text-to-Speech**: Web Speech API (`SpeechSynthesis`) with sentence chunking
+- **Proxy**: Python `http.server` forwards requests to NVIDIA to bypass browser CORS restrictions
 
 ## Prerequisites
 
