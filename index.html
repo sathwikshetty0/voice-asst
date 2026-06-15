@@ -223,6 +223,32 @@
                 <label for="nvidiaKey">NVIDIA API Key</label>
                 <input id="nvidiaKey" type="password" placeholder="Enter your NVIDIA API key" />
               </div>
+              <div class="field">
+                <label for="elevenlabsKey">ElevenLabs API Key</label>
+                <input id="elevenlabsKey" type="password" placeholder="Enter your ElevenLabs API key" />
+              </div>
+              <div class="field">
+                <label for="elevenlabsVoice">Voice</label>
+                <select id="elevenlabsVoice" style="background: rgba(15, 23, 42, 0.98); border: 1px solid rgba(148, 163, 184, 0.18); color: var(--text); border-radius: 12px; padding: 10px 12px; font-size: 13px; outline: none;">
+                  <optgroup label="Most Natural (Conversational)">
+                    <option value="kdmDKE6EkgrWrrykO9Qt">Alexandra — Super Realistic, Young Female</option>
+                    <option value="OYTbf65OHHFELVut7v2H">Hope — Bright, Uplifting</option>
+                    <option value="dj3G1R1ilKoFKhBnWOzG">Eryn — Friendly, Relatable</option>
+                    <option value="g6xIsTj2HwM6VR4iXFCw">Jessica Anne — Empathetic, Expressive</option>
+                    <option value="PT4nqlKZfc06VW1BuClj">Angela — Raw, Relatable, Down to Earth</option>
+                    <option value="L0Dsvb3SLTyegXwtm47J">Archer — Grounded, Friendly British Male</option>
+                    <option value="1SM7GgM6IMuvQlz2BwM3">Mark — Relaxed, Laid Back</option>
+                  </optgroup>
+                  <optgroup label="Your Library">
+                    <option value="QTKSa2Iyv0yoxvXY2V8a">Aria — Soft, Friendly</option>
+                    <option value="EXAVITQu4vr4xnSDxMaL">Sarah — Mature, Reassuring</option>
+                    <option value="pFZP5JQG7iQjIQuC4Bku">Lily — Velvety Actress</option>
+                    <option value="cgSgspJ2msm6clMCkdW9">Jessica — Playful, Warm</option>
+                    <option value="SAz9YHcvj6GT2YYXdXww">River — Relaxed, Neutral</option>
+                    <option value="nPczCjzI2devNBz1zQrb">Brian — Deep, Comforting</option>
+                  </optgroup>
+                </select>
+              </div>
             </div>
             <div class="settings-footer">
               <span class="tiny">Stored as localStorage values.</span>
@@ -254,8 +280,8 @@
 
   <script>
     const NVIDIA_API_KEY = "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";
-    const ELEVENLABS_API_KEY = "";
-    const ELEVENLABS_VOICE_ID = "";
+    const ELEVENLABS_API_KEY = "dff0e1064afa427061df284470ddf6010c2f6d12147585e22f0976ede1b5e0cd";
+    const ELEVENLABS_VOICE_ID = "kdmDKE6EkgrWrrykO9Qt";
     const NVIDIA_ENDPOINT = '/api/nvidia';
 
     const STORAGE_KEYS = {
@@ -583,6 +609,89 @@
     }
 
     function speakResponse(text) {
+      const { elevenlabs, voiceId } = getCurrentKeys();
+
+      // If ElevenLabs is configured, use it for high-quality voice
+      if (elevenlabs && voiceId) {
+        speakWithElevenLabs(text, elevenlabs, voiceId);
+        return;
+      }
+
+      // Fallback to browser speech synthesis
+      speakWithBrowser(text);
+    }
+
+    function speakWithElevenLabs(text, apiKey, voiceId) {
+      isSpeaking = true;
+      setStatus('Speaking…', 'speaking', 'Generating ElevenLabs voice…');
+      setMicMode('speaking');
+
+      fetch(`/api/elevenlabs/${voiceId}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'xi-api-key': apiKey
+        },
+        body: JSON.stringify({
+          text: text,
+          model_id: 'eleven_v3',
+          voice_settings: {
+            stability: 0.35,
+            similarity_boost: 0.75,
+            style: 0.45,
+            use_speaker_boost: true
+          }
+        })
+      })
+      .then(response => {
+        if (!response.ok) {
+          throw new Error(`ElevenLabs request failed: ${response.status}`);
+        }
+        return response.blob();
+      })
+      .then(blob => {
+        const url = URL.createObjectURL(blob);
+        const audio = new Audio(url);
+        currentAudio = audio;
+
+        audio.onplay = () => {
+          isSpeaking = true;
+          setStatus('Speaking…', 'speaking', 'ElevenLabs voice playback.');
+          setMicMode('speaking');
+        };
+
+        audio.onended = () => {
+          isSpeaking = false;
+          currentAudio = null;
+          URL.revokeObjectURL(url);
+          setStatus('Ready', 'idle', 'You can speak again.');
+          setMicMode('idle');
+        };
+
+        audio.onerror = () => {
+          console.error('ElevenLabs audio playback failed, falling back to browser voice.');
+          isSpeaking = false;
+          currentAudio = null;
+          URL.revokeObjectURL(url);
+          speakWithBrowser(text);
+        };
+
+        audio.play().catch(err => {
+          console.error('Audio play error:', err);
+          isSpeaking = false;
+          currentAudio = null;
+          URL.revokeObjectURL(url);
+          speakWithBrowser(text);
+        });
+      })
+      .catch(error => {
+        console.error('ElevenLabs TTS error:', error);
+        addMessage('assistant', 'ElevenLabs failed, using browser voice.', { system: true });
+        speakWithBrowser(text);
+      });
+    }
+
+    function speakWithBrowser(text) {
       if (!('speechSynthesis' in window)) {
         setStatus('Voice playback unavailable', 'idle', 'This browser does not support speech synthesis.');
         setMicMode('idle');
@@ -633,7 +742,6 @@
         };
 
         utterance.onerror = (e) => {
-          // 'interrupted' and 'canceled' are expected when user stops playback
           if (e.error === 'interrupted' || e.error === 'canceled') return;
           console.error('Speech error:', e.error);
           isSpeaking = false;
@@ -658,7 +766,6 @@
       setStatus('Speaking…', 'speaking', 'Starting voice playback.');
       setMicMode('speaking');
 
-      // Wait for voices to load if needed, then start
       if (window.speechSynthesis.getVoices().length === 0) {
         window.speechSynthesis.onvoiceschanged = () => {
           window.speechSynthesis.onvoiceschanged = null;
@@ -671,8 +778,12 @@
 
     function saveSettings() {
       const nvidiaInput = document.getElementById('nvidiaKey');
+      const elevenlabsInput = document.getElementById('elevenlabsKey');
+      const voiceInput = document.getElementById('elevenlabsVoice');
 
       storage.set(STORAGE_KEYS.nvidia, nvidiaInput.value);
+      storage.set(STORAGE_KEYS.elevenlabs, elevenlabsInput.value);
+      storage.set(STORAGE_KEYS.voice, voiceInput.value);
 
       setStatus('Settings saved', 'idle', 'Your browser will use these values for voice and TTS.');
       document.getElementById('settingsPanel').classList.remove('open');
@@ -680,8 +791,11 @@
     }
 
     function populateSettingsFields() {
-      const { nvidia } = getCurrentKeys();
+      const { nvidia, elevenlabs, voiceId } = getCurrentKeys();
       document.getElementById('nvidiaKey').value = nvidia || '';
+      document.getElementById('elevenlabsKey').value = elevenlabs || '';
+      const voiceSelect = document.getElementById('elevenlabsVoice');
+      if (voiceId) voiceSelect.value = voiceId;
     }
 
     document.getElementById('settingsToggle').addEventListener('click', () => {

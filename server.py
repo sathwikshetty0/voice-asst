@@ -25,15 +25,75 @@ class ProxyHandler(BaseHTTPRequestHandler):
         if self.path.startswith('/api/nvidia'):
             self._proxy_nvidia()
             return
+        if self.path.startswith('/api/elevenlabs/'):
+            self._proxy_elevenlabs()
+            return
         self._send_json(404, {'error': 'Not found.'})
 
     def do_OPTIONS(self):
         self.send_response(204)
         self.send_header('Access-Control-Allow-Origin', '*')
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, xi-api-key')
         self.send_header('Content-Length', '0')
         self.end_headers()
+
+    def _proxy_elevenlabs(self):
+        try:
+            # Extract voice ID from path: /api/elevenlabs/<voice_id>
+            voice_id = self.path.split('/api/elevenlabs/')[-1].split('?')[0]
+            if not voice_id:
+                self._send_json(400, {'error': 'Missing voice ID in URL.'})
+                return
+
+            content_length = int(self.headers.get('Content-Length', '0'))
+            body = self.rfile.read(content_length) if content_length > 0 else b'{}'
+
+            api_key = self.headers.get('xi-api-key', '')
+            if not api_key:
+                self._send_json(401, {'error': 'Missing xi-api-key header.'})
+                return
+
+            upstream_url = f'https://api.elevenlabs.io/v1/text-to-speech/{voice_id}'
+
+            upstream_headers = {
+                'xi-api-key': api_key,
+                'Content-Type': 'application/json',
+                'Accept': 'audio/mpeg'
+            }
+
+            request = urllib.request.Request(
+                upstream_url,
+                data=body,
+                headers=upstream_headers,
+                method='POST'
+            )
+
+            with urllib.request.urlopen(request, timeout=30) as upstream:
+                status = int(getattr(upstream, 'status', 200))
+                content_type = upstream.headers.get_content_type() or 'audio/mpeg'
+
+                self.send_response(status)
+                self.send_header('Content-Type', content_type)
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.send_header('Access-Control-Allow-Headers', 'Content-Type, xi-api-key, Accept')
+                self.end_headers()
+
+                while True:
+                    chunk = upstream.read(8192)
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+        except Exception as exc:
+            try:
+                message = str(exc)
+                self.send_response(502)
+                self.send_header('Content-Type', 'application/json; charset=utf-8')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                self.wfile.write(json.dumps({'error': 'ElevenLabs proxy failed', 'details': message}).encode('utf-8'))
+            except Exception:
+                pass
 
     def _proxy_nvidia(self):
         try:
